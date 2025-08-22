@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Sistema ACTO DE GRADO UAM</title>
+    <style>
+        body { 
+            font-family: 'Arial', sans-serif; 
+            margin: 0; 
+            padding: 2em; 
+            background: linear-gradient(135deg, #f7f7f7 0%, #e8f4f8 100%);
+        }
+        .header {
+            background: linear-gradient(90deg, #002060 0%, #009A44 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin-bottom: 2em;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 1.8em;
+            font-weight: bold;
+        }
+        .header .subtitle {
+            margin: 5px 0 0 0;
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        .container {
+            background: white;
+            padding: 2em;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .success { color: #009A44; font-weight: bold; }
+        .error { color: #d9534f; font-weight: bold; }
+        label { font-weight: bold; color: #002060; }
+        input[type="date"], input[type="text"], input[type="password"] { 
+            margin-right: 1em; 
+            padding: 0.7em; 
+            font-size: 1em; 
+            border: 2px solid #ddd;
+            border-radius: 5px;
+        }
+        button { 
+            padding: 0.7em 1.5em; 
+            font-size: 1em; 
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 0.3em;
+            transition: all 0.3s ease;
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        .btn-primary { background: #002060; color: white; }
+        .btn-success { background: #009A44; color: white; }
+        .btn-warning { background: #f0ad4e; color: white; }
+        .btn-danger { background: #d9534f; color: white; }
+        #result { margin-top: 1.5em; padding: 1em; border-radius: 5px; }
+        .section { 
+            margin-top: 2em; 
+            padding: 1.5em; 
+            border: 2px solid #e8f4f8; 
+            border-radius: 8px; 
+            background: #f9f9f9;
+        }
+        .section-title {
+            color: #002060;
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 1em;
+        }
+        @media (max-width: 600px) {
+            body { padding: 0.5em; }
+            .header h1 { font-size: 1.4em; }
+            input, button, label { display: block; width: 100%; box-sizing: border-box; margin: 0.5em 0; }
+            button { font-size: 1.1em; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎓 SISTEMA ACTO DE GRADO</h1>
+        <div class="subtitle">Universidad Arturo Michelena - Control de Acceso para Acompañantes</div>
+    </div>
+    
+    <div class="container">
+        <div class="section-title">📊 Sincronización de Estudiantes Graduandos</div>
+        <form id="syncForm">
+            <label for="from_date">📅 Sincronizar pagos desde fecha:</label>
+            <input type="date" id="from_date" name="from_date" value="2025-07-27" required>
+            <button type="submit" class="btn-primary">🔄 Sincronizar Ahora</button>
+        </form>
+        
+        <div class="section">
+            <div class="section-title">🔑 Token de Administrador</div>
+            <label for="admin_token">Token de acceso:</label>
+            <input type="password" id="admin_token" placeholder="Ingrese token de admin (ej: 9090)" value="9090">
+        </div>
+
+        <div class="section">
+            <div class="section-title">📤 Gestión de Invitaciones para Acompañantes</div>
+            <button id="sendCompanionInvitationsBtn" class="btn-success">📧 Enviar Invitaciones PDF a Acompañantes</button>
+            <p style="color: #666; font-size: 0.9em; margin-top: 0.5em;">
+                ℹ️ Envía 2 PDFs personalizados por graduando con códigos QR únicos para sus acompañantes
+            </p>
+        </div>
+
+        <div class="section">
+            <div class="section-title">👥 Control Individual por Cédula</div>
+            <div style="margin-bottom: 1em;">
+                <label for="resend_cedula">📧 Reenviar invitaciones a cédula:</label>
+                <input type="text" id="resend_cedula" placeholder="Ingrese número de cédula">
+                <button id="resendCompanionBtn" class="btn-primary">📤 Reenviar Invitaciones</button>
+            </div>
+            <div>
+                <label for="reset_checkin_cedula">🔄 Reiniciar check-in por cédula:</label>
+                <input type="text" id="reset_checkin_cedula" placeholder="Ingrese número de cédula">
+                <button id="resetCheckinCedulaBtn" class="btn-warning">🔄 Reiniciar Check-in</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">🔄 Gestión de Check-ins del Acto de Grado</div>
+            <button id="resetTestCheckinBtn" class="btn-warning">🧪 Reiniciar Check-in Estudiantes TEST</button>
+            <button id="resetCheckinBtn" class="btn-warning">⚠️ Reiniciar TODOS los Check-ins</button>
+            <p style="color: #d9534f; font-size: 0.9em; margin-top: 0.5em;">
+                ⚠️ Estas acciones reinician el estado de entrada de los acompañantes al evento
+            </p>
+        </div>
+
+        <div class="section">
+            <div class="section-title">📊 Administración de Datos</div>
+            <button id="exportBtn" class="btn-primary">📥 Exportar Estudiantes CSV</button>
+            <button id="exportCompanionsBtn" class="btn-success">👥 Exportar Acompañantes CSV</button>
+            <button id="deleteDbBtn" class="btn-danger">🗑️ Eliminar Base de Datos</button>
+        </div>
+
+        <div class="section">
+            <div class="section-title">⚙️ Sincronización Automática</div>
+            <label>
+                <input type="checkbox" id="autoSyncCheckbox"> 
+                🔄 Habilitar Auto-Sync (cada 1 min, últimos 2 min de pagos)
+            </label>
+            <span id="autoSyncStatus" style="margin-left:1em;font-weight:bold;"></span>
+        </div>
+    
+        <div id="result"></div>
+        <div id="details" style="margin-top:2em;"></div>
+    </div>
+</body>
+    <script>
+        document.getElementById('syncForm').onsubmit = async function(e) {
+            e.preventDefault();
+            const fromDate = document.getElementById('from_date').value;
+            document.getElementById('result').textContent = 'Syncing...';
+            document.getElementById('details').innerHTML = '';
+            try {
+                const resp = await fetch('/admin/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': document.getElementById('admin_token').value },
+                    body: JSON.stringify({ from_date: fromDate })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('result').innerHTML = `<span class='success'>Success!</span> Inserted: ${data.inserted_count}, Updated: ${data.updated_count}, Skipped: ${data.skipped_count}`;
+                    let html = '';
+                    if (data.inserted && data.inserted.length) {
+                        html += `<h3>Inserted Students</h3><ul>`;
+                        data.inserted.forEach(s => {
+                            html += `<li>${s.student_remote_id}: ${s.first_name} ${s.last_name} (${s.career}) &lt;${s.email}&gt;</li>`;
+                        });
+                        html += `</ul>`;
+                    }
+                    if (data.updated && data.updated.length) {
+                        html += `<h3>Updated Students</h3><ul>`;
+                        data.updated.forEach(s => {
+                            html += `<li>${s.student_remote_id}: ${s.first_name} ${s.last_name} (${s.career}) &lt;${s.email}&gt;</li>`;
+                        });
+                        html += `</ul>`;
+                    }
+                    if (data.skipped && data.skipped.length) {
+                        html += `<h3>Skipped Students (Missing Email)</h3><ul>`;
+                        data.skipped.forEach(s => {
+                            html += `<li>${s.student_remote_id}: ${s.first_name} ${s.last_name} (${s.career}) &lt;${s.email || 'NO EMAIL'}&gt;</li>`;
+                        });
+                        html += `</ul>`;
+                    }
+                    document.getElementById('details').innerHTML = html;
+                } else {
+                    document.getElementById('result').innerHTML = `<span class='error'>Error: ${data.error}</span>`;
+                }
+            } catch (err) {
+                document.getElementById('result').innerHTML = `<span class='error'>Network error: ${err}</span>`;
+            }
+        };
+        document.getElementById('sendCompanionInvitationsBtn').onclick = async function() {
+            document.getElementById('result').textContent = '📤 Enviando invitaciones PDF para acompañantes...';
+            document.getElementById('details').innerHTML = '';
+            try {
+                const resp = await fetch('/admin/send-companion-invitations', {
+                    method: 'POST',
+                    headers: { 'X-Admin-Token': document.getElementById('admin_token').value }
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('result').innerHTML = `<span class='success'>✅ Invitaciones PDF enviadas a ${data.sent_count} graduandos.` + (data.failed_count ? ` <span class='error'>❌ Falló: ${data.failed_count}</span>` : '') + `</span>`;
+                    if (data.failed && data.failed.length) {
+                        let html = '<h3>❌ Emails Fallidos</h3><ul>';
+                        data.failed.forEach(f => {
+                            html += `<li>${f.email}: ${f.error}</li>`;
+                        });
+                        html += '</ul>';
+                        document.getElementById('details').innerHTML = html;
+                    }
+                } else {
+                    document.getElementById('result').innerHTML = `<span class='error'>❌ Error: ${data.error}</span>`;
+                }
+            } catch (err) {
+                document.getElementById('result').innerHTML = `<span class='error'>🌐 Error de red: ${err}</span>`;
+            }
+        };
+        document.getElementById('deleteDbBtn').onclick = async function() {
+            if (!confirm('Are you sure you want to delete the database? This action cannot be undone.')) return;
+            const confirmText = prompt('This will permanently delete all event data. Type DELETE to confirm.');
+            if (confirmText !== 'DELETE') {
+                alert('Database deletion cancelled.');
+                return;
+            }
+            document.getElementById('result').textContent = 'Deleting database...';
+            try {
+                const resp = await fetch('/admin/delete-db', { method: 'POST', headers: { 'X-Admin-Token': document.getElementById('admin_token').value } });
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('result').innerHTML = `<span class='success'>Database deleted. Please restart the server.</span>`;
+                } else {
+                    document.getElementById('result').innerHTML = `<span class='error'>Error: ${data.error}</span>`;
+                }
+            } catch (err) {
+                document.getElementById('result').innerHTML = `<span class='error'>Network error: ${err}</span>`;
+            }
+        };
+        document.getElementById('exportBtn').onclick = async function() {
+            const token = document.getElementById('admin_token').value;
+            window.location = '/admin/export?token=' + encodeURIComponent(token);
+        };
+        document.getElementById('exportCompanionsBtn').onclick = async function() {
+            const token = document.getElementById('admin_token').value;
+            window.location = '/admin/export-companions?token=' + encodeURIComponent(token);
+        };
+        document.getElementById('resetTestCheckinBtn').onclick = async function() {
+            if (!confirm('Reset check-in status for all test students?')) return;
+            document.getElementById('result').textContent = 'Resetting test students check-in...';
+            try {
+                const resp = await fetch('/admin/reset-test-checkin', { method: 'POST', headers: { 'X-Admin-Token': document.getElementById('admin_token').value } });
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('result').innerHTML = `<span class='success'>Check-in status reset for all test students.</span>`;
+                } else {
+                    document.getElementById('result').innerHTML = `<span class='error'>Error: ${data.error}</span>`;
+                }
+            } catch (err) {
+                document.getElementById('result').innerHTML = `<span class='error'>Network error: ${err}</span>`;
+            }
+        };
+        document.getElementById('resetCheckinBtn').onclick = async function() {
+            if (!confirm('Reset check-in status for ALL students? This cannot be undone.')) return;
+            document.getElementById('result').textContent = 'Resetting check-in for ALL students...';
+            try {
+                const resp = await fetch('/admin/reset-checkin', { method: 'POST', headers: { 'X-Admin-Token': document.getElementById('admin_token').value } });
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('result').innerHTML = `<span class='success'>Check-in status reset for ALL students. Rows updated: ${data.updated}</span>`;
+                } else {
+                    document.getElementById('result').innerHTML = `<span class='error'>Error: ${data.error}</span>`;
+                }
+            } catch (err) {
+                document.getElementById('result').innerHTML = `<span class='error'>Network error: ${err}</span>`;
+            }
+        };
+        document.getElementById('resendCompanionBtn').onclick = async function() {
+            const cedula = document.getElementById('resend_cedula').value.trim();
+            if (!cedula) {
+                alert('Por favor ingrese un número de cédula.');
+                return;
+            }
+            document.getElementById('result').textContent = '📤 Reenviando invitaciones para acompañantes...';
+            try {
+                const resp = await fetch('/admin/resend-companion-invitations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': document.getElementById('admin_token').value },
+                    body: JSON.stringify({ cedula: cedula })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('result').innerHTML = `<span class='success'>✅ Invitaciones reenviadas a ${data.email}.</span>`;
+                } else {
+                    document.getElementById('result').innerHTML = `<span class='error'>❌ Error: ${data.error}</span>`;
+                }
+            } catch (err) {
+                document.getElementById('result').innerHTML = `<span class='error'>🌐 Error de red: ${err}</span>`;
+            }
+        };
+
+        document.getElementById('resetCheckinCedulaBtn').onclick = async function() {
+            const cedula = document.getElementById('reset_checkin_cedula').value.trim();
+            if (!cedula) {
+                alert('Please enter a cedula.');
+                return;
+            }
+            document.getElementById('result').textContent = 'Resetting check-in status...';
+            try {
+                const resp = await fetch('/admin/reset-checkin-cedula', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': document.getElementById('admin_token').value },
+                    body: JSON.stringify({ cedula: cedula })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('result').innerHTML = `<span class='success'>Check-in status reset for cedula ${cedula}.</span>`;
+                } else {
+                    document.getElementById('result').innerHTML = `<span class='error'>Error: ${data.error}</span>`;
+                }
+            } catch (err) {
+                document.getElementById('result').innerHTML = `<span class='error'>Network error: ${err}</span>`;
+            }
+        };
+
+
+        async function updateAutoSyncUI() {
+            const resp = await fetch('/admin/auto-sync-config', { headers: { 'X-Admin-Token': document.getElementById('admin_token').value } });
+            const config = await resp.json();
+            document.getElementById('autoSyncCheckbox').checked = !!config.enabled;
+            document.getElementById('autoSyncStatus').textContent = config.enabled ? 'ENABLED' : 'DISABLED';
+        }
+        document.getElementById('autoSyncCheckbox').addEventListener('change', async function() {
+            const enabled = this.checked;
+            await fetch('/admin/auto-sync-config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-Admin-Token': document.getElementById('admin_token').value },
+                body: JSON.stringify({enabled})
+            });
+            updateAutoSyncUI();
+        });
+        // Call on page load
+        updateAutoSyncUI();
+    </script>
+</body>
+</html>

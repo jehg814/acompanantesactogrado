@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Scanner ACTO DE GRADO - UAM</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            min-height: 100vh;
+            width: 100vw;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+        .container {
+            width: 100vw;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 0 2vw;
+        }
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-top: 2rem;
+            margin-bottom: 1.2rem;
+            text-align: center;
+        }
+        .video-crop-container {
+            width: 98vw;
+            max-width: 546px; /* 30% bigger than 420px */
+            aspect-ratio: 1/1;
+            background: #222;
+            border-radius: 16px;
+            margin-bottom: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.10);
+            overflow: hidden;
+        }
+        #video {
+            width: 100%;
+            height: 100%;
+            aspect-ratio: 1/1;
+            display: block;
+        }
+        #result {
+            margin-top: 1.2rem;
+            margin-bottom: 1.2rem;
+            font-size: 1.2rem;
+            min-height: 1.5em;
+            text-align: center;
+        }
+        #resend-qr-container {
+            width: 92vw;
+            max-width: 420px;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 1rem;
+            margin: 0 auto 2rem auto;
+            padding: 1.2rem;
+            background: #f6f6f6;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+        #resend-qr-container label {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 0.3rem;
+        }
+        #resend_cedula {
+            font-size: 1.1rem;
+            padding: 0.8rem;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            margin-bottom: 0.5rem;
+        }
+        #resendQrBtn {
+            font-size: 1.1rem;
+            padding: 0.8rem;
+            border-radius: 8px;
+            background: #007bff;
+            color: #fff;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #resendQrBtn:active {
+            background: #0056b3;
+        }
+        .success { color: green; font-size: 2.4rem; font-weight: bold; }
+        .error { color: red; font-size: 2.4rem; font-weight: bold; }
+        .warning { color: orange; font-size: 2.4rem; font-weight: bold; }
+        @media (max-width: 480px) {
+            h1 { font-size: 1.3rem; }
+            .video-crop-container, #resend-qr-container {
+                max-width: 98vw;
+                padding: 0.7rem;
+            }
+        }
+        
+        /* Mobile-friendly switch camera button */
+        #switchCameraBtn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: #ffc107;
+            color: #000;
+            border: 3px solid #fff;
+            font-size: 0.8rem;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            line-height: 1.2;
+            transition: all 0.2s ease;
+        }
+        
+        #switchCameraBtn:hover {
+            background: #ffb300;
+            transform: scale(1.05);
+        }
+        
+        #switchCameraBtn:active {
+            background: #ff9800;
+            transform: scale(0.95);
+        }
+        
+        /* Ensure button is visible on mobile */
+        @media (max-width: 768px) {
+            #switchCameraBtn {
+                width: 70px;
+                height: 70px;
+                font-size: 0.9rem;
+                bottom: 30px;
+                right: 30px;
+            }
+        }
+    /* Status lights row */
+        #status-lights-row {
+            width: 100vw;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 2.5rem 0 2.5rem 0;
+            gap: 2.5rem;
+            height: 60px;
+        }
+        .status-light {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: #eee;
+            border: 4px solid #bbb;
+            box-shadow: 0 0 0 2px #ccc;
+            transition: background 0.2s, box-shadow 0.2s, border 0.2s;
+        }
+        #green-light.on {
+            background: #24e024;
+            border-color: #1a9c1a;
+            box-shadow: 0 0 16px 6px #24e02488;
+        }
+        #orange-light.on {
+            background: #ffa500;
+            border-color: #c97a00;
+            box-shadow: 0 0 16px 6px #ffa50088;
+        }
+        #red-light.on {
+            background: #ff2222;
+            border-color: #c90000;
+            box-shadow: 0 0 16px 6px #ff222288;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="status-lights-row">
+            <div class="status-light" id="green-light"></div>
+            <div class="status-light" id="orange-light"></div>
+            <div class="status-light" id="red-light"></div>
+        </div>
+        <h1>🎓 SCANNER ACTO DE GRADO</h1>
+        <div style="color: #009A44; font-size: 1.1em; margin-bottom: 1em; font-weight: bold;">
+            Universidad Arturo Michelena - Control de Acceso Acompañantes
+        </div>
+        <div class="video-crop-container">
+            <div id="video"></div>
+        </div>
+        <div id="result"></div>
+        <div id="resend-qr-container">
+            <label for="resend_cedula">Resend Companion Invitations to cedula:</label>
+            <input type="text" id="resend_cedula" placeholder="Enter cedula">
+            <button id="resendQrBtn">Resend Invitations</button>
+        </div>
+    </div>
+    <button id="switchCameraBtn">Switch<br>Camera</button>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script>
+        const resultDiv = document.getElementById('result');
+        function setStatusLight(status) {
+            // status: 'green', 'orange', 'red', or 'off'
+            document.getElementById('green-light').classList.remove('on');
+            document.getElementById('orange-light').classList.remove('on');
+            document.getElementById('red-light').classList.remove('on');
+            if (status === 'green') {
+                document.getElementById('green-light').classList.add('on');
+            } else if (status === 'orange') {
+                document.getElementById('orange-light').classList.add('on');
+            } else if (status === 'red') {
+                document.getElementById('red-light').classList.add('on');
+            }
+        }
+        function showResult(msg, cls) {
+            resultDiv.innerHTML = `<span class='${cls}'>${msg}</span>`;
+            // Set the light based on the class if not already set
+            if (cls === 'success') {
+                setStatusLight('green');
+            } else if (cls === 'warning') {
+                setStatusLight('orange');
+            } else if (cls === 'error') {
+                setStatusLight('red');
+            }
+        }
+        function verifyQR(qr_data) {
+            showResult('Verifying QR...', 'warning');
+            fetch('/api/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ qr_data })
+            })
+            .then(async resp => {
+                let data;
+                try {
+                    data = await resp.json();
+                } catch {
+                    showResult('Network error', 'error');
+                    return;
+                }
+                if (!resp.ok) {
+                    if (data && data.message) {
+                        showResult('Error: ' + data.message, 'error');
+                    } else {
+                        showResult('Network error', 'error');
+                    }
+                    return;
+                }
+                if (data.status === 'ok') {
+                    const person = data.companion || data.student;
+                    showResult('Access Granted: ' + person.first_name + ' ' + person.last_name, 'success');
+                } else if (data.status === 'warning') {
+                    const person = data.companion || data.student;
+                    showResult('Warning: ' + data.message + '<br>' + person.first_name + ' ' + person.last_name + ' (' + person.career + ')', 'warning');
+                } else {
+                    showResult('Error: ' + data.message, 'error');
+                }
+            })
+            .catch(() => {
+                showResult('Network error', 'error');
+                setStatusLight('red');
+            });
+        }
+        // Resend QR Email logic
+        document.getElementById('resendQrBtn').onclick = async function() {
+            const cedula = document.getElementById('resend_cedula').value.trim();
+            if (!cedula) {
+                alert('Please enter a cedula.');
+                return;
+            }
+            showResult('Resending companion invitations...', 'warning');
+            try {
+                const resp = await fetch('/resend-companion-invitations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cedula: cedula })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showResult('Companion invitations resent to ' + data.email + '.', 'success');
+                } else {
+                    showResult('Error: ' + data.error, 'error');
+                }
+            } catch (err) {
+                showResult('Network error: ' + err, 'error');
+            }
+        };
+        // Start QR scanning with camera switch support
+        const html5QrCode = new Html5Qrcode("video");
+        let cameras = [];
+        let currentCameraIndex = 0;
+        let scanning = false;
+        const switchCameraBtn = document.getElementById('switchCameraBtn');
+
+        function startScan(cameraId) {
+            if (scanning) return;
+            scanning = true;
+            let qrboxSize = Math.min(window.innerWidth * 0.8, 350);
+            html5QrCode.start(
+                { deviceId: { exact: cameraId } },
+                { fps: 10, qrbox: qrboxSize },
+                qrCodeMessage => {
+                    html5QrCode.stop().then(() => {
+                        scanning = false;
+                        verifyQR(qrCodeMessage);
+                        setTimeout(() => {
+                            startScan(cameras[currentCameraIndex].id);
+                        }, 2500);
+                    });
+                }
+            ).catch(err => {
+                scanning = false;
+                showResult('Camera error: ' + err, 'error');
+            });
+        }
+
+        Html5Qrcode.getCameras().then(devices => {
+            if (devices && devices.length) {
+                cameras = devices;
+                // Prefer back camera if available
+                let backCamIndex = cameras.findIndex(cam => cam.label.toLowerCase().includes('back') || cam.label.toLowerCase().includes('environment'));
+                currentCameraIndex = backCamIndex !== -1 ? backCamIndex : 0;
+                if (cameras.length > 1) {
+                    switchCameraBtn.style.display = 'block';
+                }
+                startScan(cameras[currentCameraIndex].id);
+            } else {
+                showResult('No cameras found', 'error');
+            }
+        });
+
+        switchCameraBtn.onclick = function() {
+            if (cameras.length > 1) {
+                html5QrCode.stop().then(() => {
+                    scanning = false;
+                    currentCameraIndex = (currentCameraIndex + 1) % cameras.length;
+                    startScan(cameras[currentCameraIndex].id);
+                }).catch(() => {
+                    scanning = false;
+                    currentCameraIndex = (currentCameraIndex + 1) % cameras.length;
+                    startScan(cameras[currentCameraIndex].id);
+                });
+            }
+        };
+
+    </script>
+</body>
+</html>

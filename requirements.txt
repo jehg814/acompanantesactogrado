@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+mysql-connector-python
+qrcode[pil]
+python-dotenv
+psycopg2-binary
+jinja2
+gunicorn
+apscheduler
+pytz
+reportlab
+pillow
