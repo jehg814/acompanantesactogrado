@@ -2,6 +2,7 @@ import os
 import csv
 import logging
 import mysql.connector
+from mysql.connector import Error as MySQLError
 from dotenv import load_dotenv
 try:
     from db import get_db_connection
@@ -12,6 +13,7 @@ import pytz
 from generate_qr import generate_qr_for_student
 from generate_companion_qr import create_companion_qr_codes
 import traceback
+import time
 
 load_dotenv()
 
@@ -28,7 +30,8 @@ MYSQL_CONFIG = {
     'password': os.getenv('REMOTE_MYSQL_PASSWORD'),
     'database': os.getenv('REMOTE_MYSQL_DB'),
     'charset': 'utf8mb4',
-    'connection_timeout': 10,
+    'connection_timeout': 30,  # Increased from 10 to 30 seconds
+    'autocommit': True,
     'use_pure': True,  # Use pure Python implementation
     'ssl_disabled': True
 }
@@ -60,6 +63,26 @@ def load_allowed_cedulas() -> set:
         raise ValueError("graduacion.csv contains no cedulas to authorize")
     return allowed
 
+def get_mysql_connection_with_retry(max_retries=3, delay=1):
+    """Get MySQL connection with retry logic"""
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempting MySQL connection (attempt {attempt + 1}/{max_retries})")
+            conn = mysql.connector.connect(**MYSQL_CONFIG)
+            logger.info("MySQL connection successful")
+            return conn
+        except MySQLError as e:
+            logger.warning(f"MySQL connection attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {delay} seconds...")
+                time.sleep(delay)
+                delay *= 2  # Exponential backoff
+            else:
+                raise
+        except Exception as e:
+            logger.error(f"Unexpected error during MySQL connection: {e}")
+            raise
+
 def sync_paid_students(from_date: str = '2025-01-01'):
     """
     Sync students with most recent confirmed payment after from_date.
@@ -76,11 +99,12 @@ def sync_paid_students(from_date: str = '2025-01-01'):
 
     try:
         print(f"[SYNC DEBUG] Connecting to MySQL: {MYSQL_CONFIG['host']}:{MYSQL_CONFIG['port']}")
-        remote_conn = mysql.connector.connect(**MYSQL_CONFIG)
+        remote_conn = get_mysql_connection_with_retry()
         remote_cursor = remote_conn.cursor(dictionary=True)
         print(f"[SYNC DEBUG] MySQL connection successful")
         # Find all students with a qualifying payment after from_date
-        remote_cursor.execute(f"""
+        # Add LIMIT to prevent extremely large result sets
+        query = """
             SELECT e.IDEstudiante, e.Nombres, e.Apellidos, e.EMail,
                    csd.CodPrograma AS career,
                    e.Cedula,
@@ -92,7 +116,10 @@ def sync_paid_students(from_date: str = '2025-01-01'):
               AND cm.Confirmado = 1
               AND cm.DT >= %s
             ORDER BY e.IDEstudiante, cm.DT DESC
-        """, (from_date,))
+            LIMIT 5000
+        """
+        logger.info(f"Executing main sync query with from_date: {from_date}")
+        remote_cursor.execute(query, (from_date,))
         rows = remote_cursor.fetchall()
         print(f"[SYNC DEBUG] Rows fetched: {len(rows)}")
         for row in rows:
@@ -133,14 +160,20 @@ def sync_paid_students(from_date: str = '2025-01-01'):
         cur = local_conn.cursor()
         # Reuse a single remote MySQL connection/cursor for secondary email lookups
         try:
-            remote_conn2 = mysql.connector.connect(**MYSQL_CONFIG)
+            remote_conn2 = get_mysql_connection_with_retry()
             remote_cursor2 = remote_conn2.cursor(dictionary=True)
         except Exception as e:
             remote_conn2 = None
             remote_cursor2 = None
             logger.warning(f"Could not establish secondary MySQL connection for Perfil lookups: {e}")
 
-        for student in students.values():
+        total_students = len(students.values())
+        logger.info(f"Processing {total_students} unique students")
+        
+        for idx, student in enumerate(students.values(), 1):
+            if idx % 50 == 0 or idx == 1:
+                logger.info(f"Processing student {idx}/{total_students}")
+            
             # Enforce cedula whitelist from graduacion.csv BEFORE any DB writes
             student_cedula = (student.get('Cedula') or '')
             student_cedula = str(student_cedula).strip()
@@ -157,6 +190,8 @@ def sync_paid_students(from_date: str = '2025-01-01'):
             # Fetch secondary email from Perfil table in MySQL
             secondary_email = None
             try:
+                if remote_cursor2 is not None and idx <= 10:  # Only log for first 10 students
+                    logger.debug(f"Fetching secondary email for student {student['IDEstudiante']}")
                 if remote_cursor2 is not None:
                     student_id = student['IDEstudiante']
                     logger.debug(f"Fetching Perfil for IDUsuario={student_id}")
@@ -324,6 +359,7 @@ def sync_paid_students(from_date: str = '2025-01-01'):
             pass
         
         # Skip QR code generation during sync to prevent database locks
+        logger.info(f"Sync processing completed. Final counts - Inserted: {len(inserted)}, Updated: {len(updated)}, Skipped: {len(skipped)}")
         print(f"[SYNC DEBUG] Skipping QR code generation during sync to prevent database locks. QR codes will be generated when needed.")
     except Exception as e:
         logger.error(f"Failed to upsert into local PostgreSQL: {e}")

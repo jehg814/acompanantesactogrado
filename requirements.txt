@@ -10,3 +10,5 @@ apscheduler
 pytz
 reportlab
 pillow
+aiofiles
+asyncio-throttle

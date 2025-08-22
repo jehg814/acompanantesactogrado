@@ -60,10 +60,10 @@ def send_qr_emails():
         <!DOCTYPE html>
         <html>
         <head>
-          <meta charset=\"UTF-8\">
+          <meta charset="UTF-8">
           <title>Tu código QR para acceder al Acto de Firma del Libro de Grado</title>
         </head>
-        <body style=\"background: #f7f7f7; font-family: Arial, sans-serif; margin:0; padding:0;\">
+        <body style="background: #f7f7f7; font-family: Arial, sans-serif; margin:0; padding:0;">
           <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background: #fff; padding: 0; margin-bottom: 24px;\">
             <tr>
               <td align=\"center\" style=\"padding: 0;\">

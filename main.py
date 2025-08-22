@@ -2,9 +2,10 @@ from fastapi import FastAPI, Body, Request, Depends, Header, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from db import init_db, get_db_connection, RealDictCursor
-from sync import sync_paid_students
+from bulk_sync import sync_paid_students_bulk
 from admin_view import router as admin_router
 from send_companion_invitations import send_companion_invitations, send_companion_invitations_to_student
+from job_manager import job_manager, start_sync_job, start_qr_generation_job, start_email_job, start_full_process_job
 import os
 from datetime import datetime
 import csv
@@ -64,7 +65,7 @@ def auto_sync_job():
     from_date = (now - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
     print(f"[AUTO SYNC] Syncing students with payments after {from_date} (America/Caracas time). Current server time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
     try:
-        sync_paid_students(from_date=from_date)
+        sync_paid_students_bulk(from_date=from_date)
         config["last_run"] = now.strftime('%Y-%m-%d %H:%M:%S')
         write_auto_sync_config(config)
     except Exception as e:
@@ -99,13 +100,76 @@ def admin_page(request: Request):
 def health_check():
     return {"status": "ok"}
 
+# Background Job Management Endpoints
+
+@app.post("/admin/jobs/sync")
+async def admin_start_sync_job(from_date: str = Body('2025-01-01', embed=True), _: None = Depends(verify_admin)):
+    """Start a background sync job"""
+    try:
+        job_id = await start_sync_job(from_date)
+        return {"success": True, "job_id": job_id}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/admin/jobs/generate-qrs")
+async def admin_start_qr_job(_: None = Depends(verify_admin)):
+    """Start a background QR generation job"""
+    try:
+        job_id = await start_qr_generation_job()
+        return {"success": True, "job_id": job_id}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/admin/jobs/send-emails")
+async def admin_start_email_job(_: None = Depends(verify_admin)):
+    """Start a background email sending job"""
+    try:
+        job_id = await start_email_job()
+        return {"success": True, "job_id": job_id}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/admin/jobs/full-process")
+async def admin_start_full_process_job(from_date: str = Body('2025-01-01', embed=True), _: None = Depends(verify_admin)):
+    """Start a full process job: sync + QR generation + email sending"""
+    try:
+        job_id = await start_full_process_job(from_date)
+        return {"success": True, "job_id": job_id, "message": "Full process started in background"}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/admin/jobs/{job_id}")
+def admin_get_job_status(job_id: str, _: None = Depends(verify_admin)):
+    """Get status of a background job"""
+    status = job_manager.get_job_status(job_id)
+    if status:
+        return status
+    else:
+        return JSONResponse({"error": "Job not found"}, status_code=404)
+
+@app.get("/admin/jobs")
+def admin_list_jobs(_: None = Depends(verify_admin)):
+    """List all background jobs"""
+    return job_manager.list_jobs()
+
+@app.delete("/admin/jobs/{job_id}")
+def admin_cancel_job(job_id: str, _: None = Depends(verify_admin)):
+    """Cancel a background job"""
+    success = job_manager.cancel_job(job_id)
+    if success:
+        return {"success": True, "message": "Job cancelled"}
+    else:
+        return JSONResponse({"success": False, "error": "Job not found or cannot be cancelled"}, status_code=400)
+
+# Legacy Endpoints (for backward compatibility)
+
 @app.post("/admin/sync")
 def admin_sync(from_date: str = Body('2025-07-27', embed=True), _: None = Depends(verify_admin)):
     """
     Trigger sync of paid students from remote MySQL to local PostgreSQL.
     Accepts a from_date parameter in the JSON body (YYYY-MM-DD).
     """
-    result = sync_paid_students(from_date=from_date)
+    result = sync_paid_students_bulk(from_date=from_date)
     return result
 
 @app.post("/admin/send-companion-invitations")
