@@ -104,6 +104,7 @@
 
         <div class="section">
             <div class="section-title">📤 Gestión de Invitaciones para Acompañantes</div>
+            <button id="generateCompanionQRsBtn" class="btn-primary">🔧 Generar QRs de Acompañantes (faltantes)</button>
             <button id="sendCompanionInvitationsBtn" class="btn-success">📧 Enviar Invitaciones PDF a Acompañantes</button>
             <p style="color: #666; font-size: 0.9em; margin-top: 0.5em;">
                 ℹ️ Envía 2 PDFs personalizados por graduando con códigos QR únicos para sus acompañantes
@@ -147,6 +148,20 @@
                 🔄 Habilitar Auto-Sync (cada 1 min, últimos 2 min de pagos)
             </label>
             <span id="autoSyncStatus" style="margin-left:1em;font-weight:bold;"></span>
+        </div>
+
+        <div class="section">
+            <div class="section-title">📧 Modo de Envío</div>
+            <label>
+                <input type="checkbox" id="dryRunEmailsCheckbox"> 
+                🧪 DRY RUN (solo generar PDFs a carpeta previews/, no enviar emails)
+            </label>
+            <div style="margin-top:0.7em;">
+                <label for="previewDir">📁 Carpeta de previews:</label>
+                <input type="text" id="previewDir" placeholder="previews/">
+                <button id="saveEmailConfigBtn" class="btn-primary">💾 Guardar</button>
+            </div>
+            <span id="emailConfigStatus" style="margin-left:1em;font-weight:bold;"></span>
         </div>
     
         <div id="result"></div>
@@ -208,7 +223,11 @@
                 });
                 const data = await resp.json();
                 if (data.success) {
-                    document.getElementById('result').innerHTML = `<span class='success'>✅ Invitaciones PDF enviadas a ${data.sent_count} graduandos.` + (data.failed_count ? ` <span class='error'>❌ Falló: ${data.failed_count}</span>` : '') + `</span>`;
+                    if (data.dry_run) {
+                        document.getElementById('result').innerHTML = `<span class='success'>✅ DRY RUN: PDFs generados para ${data.previewed_count} graduandos en ${data.preview_dir}.</span>`;
+                    } else {
+                        document.getElementById('result').innerHTML = `<span class='success'>✅ Invitaciones PDF enviadas a ${data.sent_count} graduandos.` + (data.failed_count ? ` <span class='error'>❌ Falló: ${data.failed_count}</span>` : '') + `</span>`;
+                    }
                     if (data.failed && data.failed.length) {
                         let html = '<h3>❌ Emails Fallidos</h3><ul>';
                         data.failed.forEach(f => {
@@ -217,6 +236,25 @@
                         html += '</ul>';
                         document.getElementById('details').innerHTML = html;
                     }
+                } else {
+                    document.getElementById('result').innerHTML = `<span class='error'>❌ Error: ${data.error}</span>`;
+                }
+            } catch (err) {
+                document.getElementById('result').innerHTML = `<span class='error'>🌐 Error de red: ${err}</span>`;
+            }
+        };
+
+        document.getElementById('generateCompanionQRsBtn').onclick = async function() {
+            document.getElementById('result').textContent = '🔧 Generando QRs para acompañantes (solo faltantes)...';
+            document.getElementById('details').innerHTML = '';
+            try {
+                const resp = await fetch('/admin/generate-companion-qrs', {
+                    method: 'POST',
+                    headers: { 'X-Admin-Token': document.getElementById('admin_token').value }
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('result').innerHTML = `<span class='success'>✅ Generados: ${data.generated_for_students}, Ya tenían: ${data.already_had_qrs}</span>`;
                 } else {
                     document.getElementById('result').innerHTML = `<span class='error'>❌ Error: ${data.error}</span>`;
                 }
@@ -348,6 +386,36 @@
         });
         // Call on page load
         updateAutoSyncUI();
+
+        // Email config UI
+        async function loadEmailConfig() {
+            const resp = await fetch('/admin/email-config', { headers: { 'X-Admin-Token': document.getElementById('admin_token').value } });
+            const config = await resp.json();
+            document.getElementById('dryRunEmailsCheckbox').checked = !!config.dry_run_emails;
+            document.getElementById('previewDir').value = config.preview_dir || '';
+            document.getElementById('emailConfigStatus').textContent = config.dry_run_emails ? 'DRY RUN' : 'LIVE';
+        }
+        document.getElementById('dryRunEmailsCheckbox').addEventListener('change', async function() {
+            const dryRun = this.checked;
+            const previewDir = document.getElementById('previewDir').value;
+            await fetch('/admin/email-config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-Admin-Token': document.getElementById('admin_token').value },
+                body: JSON.stringify({dry_run_emails: dryRun, preview_dir: previewDir})
+            });
+            loadEmailConfig();
+        });
+        document.getElementById('saveEmailConfigBtn').addEventListener('click', async function() {
+            const dryRun = document.getElementById('dryRunEmailsCheckbox').checked;
+            const previewDir = document.getElementById('previewDir').value;
+            await fetch('/admin/email-config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-Admin-Token': document.getElementById('admin_token').value },
+                body: JSON.stringify({dry_run_emails: dryRun, preview_dir: previewDir})
+            });
+            loadEmailConfig();
+        });
+        loadEmailConfig();
     </script>
 </body>
 </html>

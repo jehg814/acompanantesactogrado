@@ -10,6 +10,7 @@ from generate_invitation_pdf import generate_companion_pdfs
 from datetime import datetime
 import pytz
 import urllib.request
+import json
 
 # Use the Cloudinary PNG as the cached logo image
 try:
@@ -19,18 +20,33 @@ except Exception as e:
     CACHED_LOGO_IMAGE_BYTES = None
     print(f"Warning: Could not download logo image: {e}")
 
+def _read_email_config():
+    """Read optional email config set from Admin UI"""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'email_config.json')
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {"dry_run_emails": False, "preview_dir": os.path.join(os.path.dirname(__file__), 'previews')}
+
 def send_companion_invitations():
     """Send PDF invitations to students for their companions"""
     
+    # Dry-run mode: when enabled, generate PDFs to disk without sending emails or updating DB
+    email_cfg = _read_email_config()
+    DRY_RUN = email_cfg.get('dry_run_emails', os.environ.get('DRY_RUN_EMAILS', '0') == '1')
+    PREVIEW_DIR = email_cfg.get('preview_dir', os.environ.get('EMAIL_PREVIEW_DIR', os.path.join(os.path.dirname(__file__), 'previews')))
+
     # Load email credentials from environment variables
     SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
     SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD')
     SMTP_HOST = os.environ.get('SMTP_HOST')
     SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
 
-    # Check for missing credentials
-    if not all([SENDER_EMAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT]):
-        return {'success': False, 'error': 'Missing email environment variable(s).'}
+    # If not dry-run, validate SMTP config
+    if not DRY_RUN:
+        if not all([SENDER_EMAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT]):
+            return {'success': False, 'error': 'Missing email environment variable(s).'}
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -51,14 +67,22 @@ def send_companion_invitations():
     sent = []
     failed = []
 
-    try:
-        server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-    except Exception as e:
-        return {'success': False, 'error': f'SMTP connection/login failed: {e}'}
+    # In dry-run, ensure preview directory exists
+    if DRY_RUN:
+        try:
+            os.makedirs(PREVIEW_DIR, exist_ok=True)
+        except Exception as e:
+            return {'success': False, 'error': f'Failed to create preview directory: {e}'}
+        server = None
+    else:
+        try:
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        except Exception as e:
+            return {'success': False, 'error': f'SMTP connection/login failed: {e}'}
 
     for student in students:
         student_full_name = f"{student['first_name']} {student['last_name']}"
@@ -72,15 +96,15 @@ def send_companion_invitations():
             # Generate PDF invitations
             pdf_bytes_list = generate_companion_pdfs(student['id'], student_full_name, qr_codes)
             
-            # Create email
+            # Build email (or preview metadata)
             msg = MIMEMultipart('related')
             msg['Subject'] = 'Invitaciones para Acompañantes - Acto de Grado'
-            msg['From'] = SENDER_EMAIL
+            msg['From'] = SENDER_EMAIL if SENDER_EMAIL else 'no-reply@example.com'
             recipients = [student['email']]
             if student.get('secondary_email'):
                 recipients.append(student['secondary_email'])
             msg['To'] = ', '.join(recipients)
-            
+
             # HTML content for email body
             html = f"""
             <!DOCTYPE html>
@@ -137,64 +161,94 @@ def send_companion_invitations():
             """
             
             msg.attach(MIMEText(html, 'html'))
-            
-            # Attach PDF files
-            for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
-                pdf_attachment = MIMEApplication(pdf_bytes, _subtype='pdf')
-                pdf_attachment.add_header(
-                    'Content-Disposition', 
-                    'attachment', 
-                    filename=f'Invitacion_Acompanante_{i}_{student["first_name"]}_{student["last_name"]}.pdf'
-                )
-                msg.attach(pdf_attachment)
-            
-            # Attach cached logo
-            if CACHED_LOGO_IMAGE_BYTES:
-                logo_img = MIMEImage(CACHED_LOGO_IMAGE_BYTES, _subtype='png')
-                logo_img.add_header('Content-ID', '<uamlogo>')
-                logo_img.add_header('Content-Disposition', 'inline', filename='uamlogo.png')
-                msg.attach(logo_img)
-            
-            # Send email
-            server.sendmail(SENDER_EMAIL, recipients, msg.as_string())
-            
-            # Mark as sent in database
-            ve_tz = pytz.timezone('America/Caracas')
-            now = datetime.now(ve_tz).replace(tzinfo=None)
-            cur.execute("""
-                UPDATE companions 
-                SET pdf_sent_at = %s 
-                WHERE student_id = %s
-            """, (now, student['id']))
-            
-            sent.append({'email': recipients, 'id': student['id'], 'name': student_full_name})
+
+            # Attach or save PDF files
+            if DRY_RUN:
+                saved_files = []
+                for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
+                    safe_first = str(student['first_name']).replace(' ', '_')
+                    safe_last = str(student['last_name']).replace(' ', '_')
+                    filename = f'Invitacion_Acompanante_{i}_{safe_first}_{safe_last}.pdf'
+                    out_path = os.path.join(PREVIEW_DIR, filename)
+                    with open(out_path, 'wb') as f:
+                        f.write(pdf_bytes)
+                    saved_files.append(out_path)
+                sent.append({'preview_files': saved_files, 'id': student['id'], 'name': student_full_name, 'recipients': recipients})
+            else:
+                for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
+                    pdf_attachment = MIMEApplication(pdf_bytes, _subtype='pdf')
+                    pdf_attachment.add_header(
+                        'Content-Disposition', 
+                        'attachment', 
+                        filename=f'Invitacion_Acompanante_{i}_{student["first_name"]}_{student["last_name"]}.pdf'
+                    )
+                    msg.attach(pdf_attachment)
+                
+                # Attach cached logo
+                if CACHED_LOGO_IMAGE_BYTES:
+                    logo_img = MIMEImage(CACHED_LOGO_IMAGE_BYTES, _subtype='png')
+                    logo_img.add_header('Content-ID', '<uamlogo>')
+                    logo_img.add_header('Content-Disposition', 'inline', filename='uamlogo.png')
+                    msg.attach(logo_img)
+                
+                # Send email
+                server.sendmail(SENDER_EMAIL, recipients, msg.as_string())
+                
+                # Mark as sent in database
+                ve_tz = pytz.timezone('America/Caracas')
+                now = datetime.now(ve_tz).replace(tzinfo=None)
+                cur.execute("""
+                    UPDATE companions 
+                    SET pdf_sent_at = %s 
+                    WHERE student_id = %s
+                """, (now, student['id']))
+                
+                sent.append({'email': recipients, 'id': student['id'], 'name': student_full_name})
             
         except Exception as e:
             failed.append({'email': recipients if 'recipients' in locals() else [], 'error': str(e), 'id': student['id'], 'name': student_full_name})
 
-    conn.commit()
+    if not DRY_RUN:
+        conn.commit()
     cur.close()
     conn.close()
-    server.quit()
-    
-    return {
-        'success': True, 
-        'sent_count': len(sent), 
-        'failed_count': len(failed), 
-        'sent': sent, 
-        'failed': failed
-    }
+    if server:
+        server.quit()
+
+    if DRY_RUN:
+        return {
+            'success': True,
+            'dry_run': True,
+            'preview_dir': PREVIEW_DIR,
+            'previewed_count': len(sent),
+            'failed_count': len(failed),
+            'previewed': sent,
+            'failed': failed
+        }
+    else:
+        return {
+            'success': True, 
+            'sent_count': len(sent), 
+            'failed_count': len(failed), 
+            'sent': sent, 
+            'failed': failed
+        }
 
 def send_companion_invitations_to_student(cedula):
     """Send companion invitations to a specific student by cedula"""
     
+    email_cfg = _read_email_config()
+    DRY_RUN = email_cfg.get('dry_run_emails', os.environ.get('DRY_RUN_EMAILS', '0') == '1')
+    PREVIEW_DIR = email_cfg.get('preview_dir', os.environ.get('EMAIL_PREVIEW_DIR', os.path.join(os.path.dirname(__file__), 'previews')))
+
     SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
     SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD')
     SMTP_HOST = os.environ.get('SMTP_HOST')
     SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
     
-    if not all([SENDER_EMAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT]):
-        return {'success': False, 'error': 'Missing email environment variable(s).'}
+    if not DRY_RUN:
+        if not all([SENDER_EMAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT]):
+            return {'success': False, 'error': 'Missing email environment variable(s).'}
     
     conn = get_db_connection()
     cur = conn.cursor()
@@ -217,17 +271,21 @@ def send_companion_invitations_to_student(cedula):
         # Generate PDF invitations
         pdf_bytes_list = generate_companion_pdfs(student['id'], student_full_name, qr_codes)
         
-        # Setup SMTP
-        server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        # Setup SMTP or preview dir
+        if DRY_RUN:
+            os.makedirs(PREVIEW_DIR, exist_ok=True)
+            server = None
+        else:
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
         
-        # Create and send email (similar to above)
+        # Create email (or preview) (similar to above)
         msg = MIMEMultipart('related')
         msg['Subject'] = 'Invitaciones para Acompañantes - Acto de Grado'
-        msg['From'] = SENDER_EMAIL
+        msg['From'] = SENDER_EMAIL if SENDER_EMAIL else 'no-reply@example.com'
         recipients = [student['email']]
         if student.get('secondary_email'):
             recipients.append(student['secondary_email'])
@@ -263,39 +321,53 @@ def send_companion_invitations_to_student(cedula):
         
         msg.attach(MIMEText(html, 'html'))
         
-        # Attach PDFs
-        for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
-            pdf_attachment = MIMEApplication(pdf_bytes, _subtype='pdf')
-            pdf_attachment.add_header(
-                'Content-Disposition', 
-                'attachment', 
-                filename=f'Invitacion_Acompanante_{i}_{student["first_name"]}_{student["last_name"]}.pdf'
-            )
-            msg.attach(pdf_attachment)
-        
-        # Attach logo
-        if CACHED_LOGO_IMAGE_BYTES:
-            logo_img = MIMEImage(CACHED_LOGO_IMAGE_BYTES, _subtype='png')
-            logo_img.add_header('Content-ID', '<uamlogo>')
-            logo_img.add_header('Content-Disposition', 'inline', filename='uamlogo.png')
-            msg.attach(logo_img)
-        
-        # Send
-        server.sendmail(SENDER_EMAIL, recipients, msg.as_string())
-        
-        # Update database
-        ve_tz = pytz.timezone('America/Caracas')
-        now = datetime.now(ve_tz).replace(tzinfo=None)
-        cur.execute("UPDATE companions SET pdf_sent_at = %s WHERE student_id = %s", (now, student['id']))
-        conn.commit()
-        
-        cur.close()
-        conn.close()
-        server.quit()
-        
-        return {'success': True, 'email': recipients}
+        if DRY_RUN:
+            saved_files = []
+            for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
+                safe_first = str(student['first_name']).replace(' ', '_')
+                safe_last = str(student['last_name']).replace(' ', '_')
+                filename = f'Invitacion_Acompanante_{i}_{safe_first}_{safe_last}.pdf'
+                out_path = os.path.join(PREVIEW_DIR, filename)
+                with open(out_path, 'wb') as f:
+                    f.write(pdf_bytes)
+                saved_files.append(out_path)
+            cur.close()
+            conn.close()
+            return {'success': True, 'dry_run': True, 'email': recipients, 'preview_files': saved_files, 'preview_dir': PREVIEW_DIR}
+        else:
+            # Attach PDFs
+            for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
+                pdf_attachment = MIMEApplication(pdf_bytes, _subtype='pdf')
+                pdf_attachment.add_header(
+                    'Content-Disposition', 
+                    'attachment', 
+                    filename=f'Invitacion_Acompanante_{i}_{student["first_name"]}_{student["last_name"]}.pdf'
+                )
+                msg.attach(pdf_attachment)
+            
+            # Attach logo
+            if CACHED_LOGO_IMAGE_BYTES:
+                logo_img = MIMEImage(CACHED_LOGO_IMAGE_BYTES, _subtype='png')
+                logo_img.add_header('Content-ID', '<uamlogo>')
+                logo_img.add_header('Content-Disposition', 'inline', filename='uamlogo.png')
+                msg.attach(logo_img)
+            
+            # Send
+            server.sendmail(SENDER_EMAIL, recipients, msg.as_string())
+            
+            # Update database
+            ve_tz = pytz.timezone('America/Caracas')
+            now = datetime.now(ve_tz).replace(tzinfo=None)
+            cur.execute("UPDATE companions SET pdf_sent_at = %s WHERE student_id = %s", (now, student['id']))
+            conn.commit()
+            
+            cur.close()
+            conn.close()
+            server.quit()
+            
+            return {'success': True, 'email': recipients}
         
     except Exception as e:
-        if 'server' in locals():
+        if 'server' in locals() and server:
             server.quit()
         return {'success': False, 'error': str(e)}

@@ -26,6 +26,7 @@ app.include_router(admin_router)
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), 'templates'))
 
 AUTO_SYNC_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'auto_sync_config.json')
+EMAIL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'email_config.json')
 
 # Simple admin auth
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
@@ -91,6 +92,18 @@ async def startup_db_client():
         print("[AUTO SYNC] Scheduler started - auto sync enabled")
     else:
         print("[AUTO SYNC] Scheduler not started - auto sync disabled")
+
+# Email config helpers
+def read_email_config():
+    try:
+        with open(EMAIL_CONFIG_PATH, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {"dry_run_emails": False, "preview_dir": os.path.join(os.path.dirname(__file__), 'previews')}
+
+def write_email_config(config):
+    with open(EMAIL_CONFIG_PATH, 'w') as f:
+        json.dump(config, f)
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page(request: Request):
@@ -160,6 +173,34 @@ def admin_cancel_job(job_id: str, _: None = Depends(verify_admin)):
         return {"success": True, "message": "Job cancelled"}
     else:
         return JSONResponse({"success": False, "error": "Job not found or cannot be cancelled"}, status_code=400)
+
+# Companion QR generation (pre-generate for students missing companion QRs)
+@app.post("/admin/generate-companion-qrs")
+def admin_generate_companion_qrs(_: None = Depends(verify_admin)):
+    from generate_companion_qr import get_companion_qr_codes, create_companion_qr_codes
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id FROM students 
+            WHERE payment_confirmed=TRUE
+        """)
+        students = cur.fetchall()
+        generated = 0
+        already = 0
+        for row in students:
+            student_id = row['id'] if isinstance(row, dict) else row[0]
+            existing = get_companion_qr_codes(student_id)
+            if existing and len(existing) == 2:
+                already += 1
+                continue
+            create_companion_qr_codes(student_id)
+            generated += 1
+        cur.close()
+        conn.close()
+        return {"success": True, "generated_for_students": generated, "already_had_qrs": already}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 # Legacy Endpoints (for backward compatibility)
 
@@ -517,4 +558,19 @@ def set_auto_sync_config(payload: dict, _: None = Depends(verify_admin)):
         scheduler = None
         print("[AUTO SYNC] Scheduler stopped")
     
+    return JSONResponse(config)
+
+# Email config endpoints
+@app.get("/admin/email-config")
+def get_email_config(_: None = Depends(verify_admin)):
+    config = read_email_config()
+    return JSONResponse(config)
+
+@app.post("/admin/email-config")
+def set_email_config(payload: dict, _: None = Depends(verify_admin)):
+    config = read_email_config()
+    dry_run = bool(payload.get("dry_run_emails", config.get("dry_run_emails", False)))
+    preview_dir = payload.get("preview_dir", config.get("preview_dir", os.path.join(os.path.dirname(__file__), 'previews')))
+    config.update({"dry_run_emails": dry_run, "preview_dir": preview_dir})
+    write_email_config(config)
     return JSONResponse(config)
