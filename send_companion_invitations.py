@@ -38,14 +38,15 @@ def send_companion_invitations():
     PREVIEW_DIR = email_cfg.get('preview_dir', os.environ.get('EMAIL_PREVIEW_DIR', os.path.join(os.path.dirname(__file__), 'previews')))
 
     # Load email credentials from environment variables
-    SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
-    SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD')
+    SENDER_EMAIL = os.environ.get('SENDER_EMAIL')  # Used as From header
+    SMTP_USERNAME = os.environ.get('SMTP_USERNAME') or SENDER_EMAIL  # Brevo login or fallback
+    SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD') or os.environ.get('SENDER_PASSWORD')
     SMTP_HOST = os.environ.get('SMTP_HOST')
     SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
 
     # If not dry-run, validate SMTP config
     if not DRY_RUN:
-        if not all([SENDER_EMAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT]):
+        if not all([SMTP_USERNAME, SMTP_PASSWORD, SMTP_HOST, SMTP_PORT]):
             return {'success': False, 'error': 'Missing email environment variable(s).'}
 
     conn = get_db_connection()
@@ -103,7 +104,7 @@ def send_companion_invitations():
             server.ehlo()
             server.starttls()
             server.ehlo()
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
         except Exception as e:
             return {'success': False, 'error': f'SMTP connection/login failed: {e}'}
 
@@ -148,7 +149,7 @@ def send_companion_invitations():
             # Build email (or preview metadata)
             msg = MIMEMultipart('related')
             msg['Subject'] = 'Invitaciones para Acompañantes - Acto de Grado'
-            msg['From'] = SENDER_EMAIL if SENDER_EMAIL else 'no-reply@example.com'
+            msg['From'] = SENDER_EMAIL if SENDER_EMAIL else SMTP_USERNAME or 'no-reply@example.com'
             recipients = [student['email']]
             if student.get('secondary_email'):
                 recipients.append(student['secondary_email'])

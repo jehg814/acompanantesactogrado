@@ -47,8 +47,8 @@ class EmailQueue:
         self.smtp_config = {
             'host': os.environ.get('SMTP_HOST'),
             'port': int(os.environ.get('SMTP_PORT', 587)),
-            'username': os.environ.get('SENDER_EMAIL'),
-            'password': os.environ.get('SENDER_PASSWORD')
+            'username': os.environ.get('SMTP_USERNAME') or os.environ.get('SENDER_EMAIL'),
+            'password': os.environ.get('SMTP_PASSWORD') or os.environ.get('SENDER_PASSWORD')
         }
     
     def _load_cached_logo(self):
