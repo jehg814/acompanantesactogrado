@@ -106,6 +106,7 @@
             <div class="section-title">📤 Gestión de Invitaciones para Acompañantes</div>
             <button id="generateCompanionQRsBtn" class="btn-primary">🔧 Generar QRs de Acompañantes (faltantes)</button>
             <button id="sendCompanionInvitationsBtn" class="btn-success">📧 Enviar Invitaciones PDF a Acompañantes</button>
+            <button id="sendCompanionInvitationsJobBtn" class="btn-primary">🧵 Ejecutar en segundo plano</button>
             <p style="color: #666; font-size: 0.9em; margin-top: 0.5em;">
                 ℹ️ Envía 2 PDFs personalizados por graduando con códigos QR únicos para sus acompañantes
             </p>
@@ -236,6 +237,39 @@
                         html += '</ul>';
                         document.getElementById('details').innerHTML = html;
                     }
+                } else {
+                    document.getElementById('result').innerHTML = `<span class='error'>❌ Error: ${data.error}</span>`;
+                }
+            } catch (err) {
+                document.getElementById('result').innerHTML = `<span class='error'>🌐 Error de red: ${err}</span>`;
+            }
+        };
+
+        // Run as background job to avoid request timeouts
+        document.getElementById('sendCompanionInvitationsJobBtn').onclick = async function() {
+            document.getElementById('result').textContent = '🧵 Iniciando proceso en segundo plano...';
+            document.getElementById('details').innerHTML = '';
+            try {
+                const resp = await fetch('/admin/jobs/send-companion-invitations', {
+                    method: 'POST',
+                    headers: { 'X-Admin-Token': document.getElementById('admin_token').value }
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    const jobId = data.job_id;
+                    document.getElementById('result').innerHTML = `<span class='success'>🧵 Job iniciado: ${jobId}. Monitoreando progreso...</span>`;
+                    // Poll job status
+                    const interval = setInterval(async () => {
+                        const s = await fetch(`/admin/jobs/${jobId}`, { headers: { 'X-Admin-Token': document.getElementById('admin_token').value } });
+                        const sj = await s.json();
+                        if (sj && sj.status) {
+                            document.getElementById('result').innerHTML = `<span class='success'>Estado: ${sj.status} - Progreso: ${sj.progress || 0}%</span>`;
+                            if (sj.status === 'completed' || sj.status === 'failed' || sj.status === 'cancelled') {
+                                clearInterval(interval);
+                                document.getElementById('details').textContent = sj.result ? JSON.stringify(sj.result).slice(0, 5000) : (sj.error_message || '');
+                            }
+                        }
+                    }, 1500);
                 } else {
                     document.getElementById('result').innerHTML = `<span class='error'>❌ Error: ${data.error}</span>`;
                 }

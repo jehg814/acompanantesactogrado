@@ -24,6 +24,7 @@ class JobType(Enum):
     GENERATE_QRS = "generate_qrs"
     SEND_EMAILS = "send_emails"
     FULL_PROCESS = "full_process"
+    SEND_COMPANION_INVITATIONS = "send_companion_invitations"
 
 @dataclass
 class Job:
@@ -47,7 +48,8 @@ class JobManager:
             JobType.SYNC_STUDENTS: self._handle_sync_students,
             JobType.GENERATE_QRS: self._handle_generate_qrs,
             JobType.SEND_EMAILS: self._handle_send_emails,
-            JobType.FULL_PROCESS: self._handle_full_process
+            JobType.FULL_PROCESS: self._handle_full_process,
+            JobType.SEND_COMPANION_INVITATIONS: self._handle_send_companion_invitations
         }
         self.ve_tz = pytz.timezone('America/Caracas')
     
@@ -158,6 +160,21 @@ class JobManager:
         job.total_items = result.get('total_emails', 0)
         job.processed_items = result.get('sent_count', 0)
         
+        return result
+
+    async def _handle_send_companion_invitations(self, job: Job) -> Dict:
+        """Handle sending companion invitations (supports DRY RUN)"""
+        from send_companion_invitations import send_companion_invitations
+        loop = asyncio.get_event_loop()
+        job.progress = 10
+        # Run sync function in thread to avoid blocking
+        result = await loop.run_in_executor(None, send_companion_invitations)
+        # Try to extract counts for progress
+        if isinstance(result, dict):
+            total = result.get('previewed_count') or result.get('sent_count') or 0
+            job.total_items = total
+            job.processed_items = total
+            job.progress = 100
         return result
     
     async def _handle_full_process(self, job: Job) -> Dict:
@@ -300,5 +317,11 @@ async def start_email_job() -> str:
 async def start_full_process_job(from_date: str = '2025-01-01') -> str:
     """Start a full process job (sync + QR + email)"""
     job_id = job_manager.create_job(JobType.FULL_PROCESS, {'from_date': from_date})
+    await job_manager.start_job(job_id)
+    return job_id
+
+async def start_companion_invitations_job() -> str:
+    """Start job to send companion invitations (or DRY RUN)"""
+    job_id = job_manager.create_job(JobType.SEND_COMPANION_INVITATIONS)
     await job_manager.start_job(job_id)
     return job_id

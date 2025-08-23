@@ -5,7 +5,7 @@ from db import init_db, get_db_connection, RealDictCursor
 from bulk_sync import sync_paid_students_bulk
 from admin_view import router as admin_router
 from send_companion_invitations import send_companion_invitations, send_companion_invitations_to_student
-from job_manager import job_manager, start_sync_job, start_qr_generation_job, start_email_job, start_full_process_job
+from job_manager import job_manager, start_sync_job, start_qr_generation_job, start_email_job, start_full_process_job, start_companion_invitations_job
 import os
 from datetime import datetime
 import csv
@@ -148,6 +148,15 @@ async def admin_start_full_process_job(from_date: str = Body('2025-01-01', embed
     try:
         job_id = await start_full_process_job(from_date)
         return {"success": True, "job_id": job_id, "message": "Full process started in background"}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/admin/jobs/send-companion-invitations")
+async def admin_start_companion_invitations_job(_: None = Depends(verify_admin)):
+    """Start job for sending companion invitations (DRY RUN or live based on config)"""
+    try:
+        job_id = await start_companion_invitations_job()
+        return {"success": True, "job_id": job_id}
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
