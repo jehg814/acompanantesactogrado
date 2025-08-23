@@ -170,6 +170,9 @@
     </div>
 </body>
     <script>
+        // Track a single active job poll to avoid overlapping intervals
+        let currentJobId = null;
+        let currentJobInterval = null;
         document.getElementById('syncForm').onsubmit = async function(e) {
             e.preventDefault();
             const fromDate = document.getElementById('from_date').value;
@@ -247,6 +250,11 @@
 
         // Run as background job to avoid request timeouts
         document.getElementById('sendCompanionInvitationsJobBtn').onclick = async function() {
+            // Stop any previous polling
+            if (currentJobInterval) { clearInterval(currentJobInterval); currentJobInterval = null; }
+            currentJobId = null;
+            // Disable button while starting
+            document.getElementById('sendCompanionInvitationsJobBtn').disabled = true;
             document.getElementById('result').textContent = '🧵 Iniciando proceso en segundo plano...';
             document.getElementById('details').innerHTML = '';
             try {
@@ -257,24 +265,41 @@
                 const data = await resp.json();
                 if (data.success) {
                     const jobId = data.job_id;
+                    currentJobId = jobId;
                     document.getElementById('result').innerHTML = `<span class='success'>🧵 Job iniciado: ${jobId}. Monitoreando progreso...</span>`;
                     // Poll job status
-                    const interval = setInterval(async () => {
-                        const s = await fetch(`/admin/jobs/${jobId}`, { headers: { 'X-Admin-Token': document.getElementById('admin_token').value } });
-                        const sj = await s.json();
-                        if (sj && sj.status) {
-                            document.getElementById('result').innerHTML = `<span class='success'>Estado: ${sj.status} - Progreso: ${sj.progress || 0}%</span>`;
-                            if (sj.status === 'completed' || sj.status === 'failed' || sj.status === 'cancelled') {
-                                clearInterval(interval);
-                                document.getElementById('details').textContent = sj.result ? JSON.stringify(sj.result).slice(0, 5000) : (sj.error_message || '');
+                    currentJobInterval = setInterval(async () => {
+                        try {
+                            const s = await fetch(`/admin/jobs/${currentJobId}`, { headers: { 'X-Admin-Token': document.getElementById('admin_token').value } });
+                            if (s.status === 404) {
+                                clearInterval(currentJobInterval); currentJobInterval = null; currentJobId = null;
+                                document.getElementById('result').innerHTML = `<span class='error'>Job no encontrado (posible reinicio). Inicie uno nuevo.</span>`;
+                                document.getElementById('sendCompanionInvitationsJobBtn').disabled = false;
+                                return;
                             }
+                            const sj = await s.json();
+                            if (sj && sj.status) {
+                                document.getElementById('result').innerHTML = `<span class='success'>Estado: ${sj.status} - Progreso: ${sj.progress || 0}%</span>`;
+                                if (sj.status === 'completed' || sj.status === 'failed' || sj.status === 'cancelled') {
+                                    clearInterval(currentJobInterval); currentJobInterval = null; currentJobId = null;
+                                    document.getElementById('details').textContent = sj.result ? JSON.stringify(sj.result).slice(0, 5000) : (sj.error_message || '');
+                                    document.getElementById('sendCompanionInvitationsJobBtn').disabled = false;
+                                }
+                            }
+                        } catch (e) {
+                            // Stop polling on unexpected errors
+                            clearInterval(currentJobInterval); currentJobInterval = null; currentJobId = null;
+                            document.getElementById('result').innerHTML = `<span class='error'>Error al consultar el job: ${e}</span>`;
+                            document.getElementById('sendCompanionInvitationsJobBtn').disabled = false;
                         }
                     }, 1500);
                 } else {
                     document.getElementById('result').innerHTML = `<span class='error'>❌ Error: ${data.error}</span>`;
+                    document.getElementById('sendCompanionInvitationsJobBtn').disabled = false;
                 }
             } catch (err) {
                 document.getElementById('result').innerHTML = `<span class='error'>🌐 Error de red: ${err}</span>`;
+                document.getElementById('sendCompanionInvitationsJobBtn').disabled = false;
             }
         };
 
