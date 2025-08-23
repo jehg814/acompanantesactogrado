@@ -12,3 +12,4 @@ reportlab
 pillow
 aiofiles
 asyncio-throttle
+boto3

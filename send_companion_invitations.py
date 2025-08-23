@@ -11,6 +11,7 @@ from datetime import datetime
 import pytz
 import urllib.request
 import json
+import boto3
 
 # Use the Cloudinary PNG as the cached logo image
 try:
@@ -67,8 +68,30 @@ def send_companion_invitations():
     sent = []
     failed = []
 
-    # In dry-run, ensure preview directory exists
-    if DRY_RUN:
+    # DRY RUN path: determine if Spaces is configured
+    SPACES_ENDPOINT = os.environ.get('SPACES_ENDPOINT')
+    SPACES_REGION = os.environ.get('SPACES_REGION')
+    SPACES_BUCKET = os.environ.get('SPACES_BUCKET')
+    SPACES_KEY = os.environ.get('SPACES_KEY')
+    SPACES_SECRET = os.environ.get('SPACES_SECRET')
+
+    s3_client = None
+    use_spaces = False
+    if DRY_RUN and all([SPACES_ENDPOINT, SPACES_REGION, SPACES_BUCKET, SPACES_KEY, SPACES_SECRET]):
+        try:
+            s3_client = boto3.client(
+                's3',
+                endpoint_url=SPACES_ENDPOINT,
+                region_name=SPACES_REGION,
+                aws_access_key_id=SPACES_KEY,
+                aws_secret_access_key=SPACES_SECRET,
+            )
+            use_spaces = True
+        except Exception as e:
+            return {'success': False, 'error': f'Failed to initialize Spaces client: {e}'}
+
+    # In local dry-run without Spaces, ensure preview directory exists
+    if DRY_RUN and not use_spaces:
         try:
             os.makedirs(PREVIEW_DIR, exist_ok=True)
         except Exception as e:
@@ -164,16 +187,31 @@ def send_companion_invitations():
 
             # Attach or save PDF files
             if DRY_RUN:
-                saved_files = []
+                saved = []
                 for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
                     safe_first = str(student['first_name']).replace(' ', '_')
                     safe_last = str(student['last_name']).replace(' ', '_')
                     filename = f'Invitacion_Acompanante_{i}_{safe_first}_{safe_last}.pdf'
-                    out_path = os.path.join(PREVIEW_DIR, filename)
-                    with open(out_path, 'wb') as f:
-                        f.write(pdf_bytes)
-                    saved_files.append(out_path)
-                sent.append({'preview_files': saved_files, 'id': student['id'], 'name': student_full_name, 'recipients': recipients})
+                    if use_spaces:
+                        prefix = PREVIEW_DIR.strip('/') if PREVIEW_DIR else 'previews'
+                        key = f"{prefix}/{filename}"
+                        try:
+                            s3_client.put_object(
+                                Bucket=SPACES_BUCKET,
+                                Key=key,
+                                Body=pdf_bytes,
+                                ContentType='application/pdf',
+                                ACL='private'
+                            )
+                            saved.append({'space_key': key})
+                        except Exception as e:
+                            failed.append({'email': recipients, 'error': f'Spaces upload failed: {e}', 'id': student['id'], 'name': student_full_name})
+                    else:
+                        out_path = os.path.join(PREVIEW_DIR, filename)
+                        with open(out_path, 'wb') as f:
+                            f.write(pdf_bytes)
+                        saved.append({'file_path': out_path})
+                sent.append({'previews': saved, 'id': student['id'], 'name': student_full_name, 'recipients': recipients})
             else:
                 for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
                     pdf_attachment = MIMEApplication(pdf_bytes, _subtype='pdf')
@@ -322,18 +360,50 @@ def send_companion_invitations_to_student(cedula):
         msg.attach(MIMEText(html, 'html'))
         
         if DRY_RUN:
-            saved_files = []
-            for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
-                safe_first = str(student['first_name']).replace(' ', '_')
-                safe_last = str(student['last_name']).replace(' ', '_')
-                filename = f'Invitacion_Acompanante_{i}_{safe_first}_{safe_last}.pdf'
-                out_path = os.path.join(PREVIEW_DIR, filename)
-                with open(out_path, 'wb') as f:
-                    f.write(pdf_bytes)
-                saved_files.append(out_path)
+            # Spaces config detection
+            SPACES_ENDPOINT = os.environ.get('SPACES_ENDPOINT')
+            SPACES_REGION = os.environ.get('SPACES_REGION')
+            SPACES_BUCKET = os.environ.get('SPACES_BUCKET')
+            SPACES_KEY = os.environ.get('SPACES_KEY')
+            SPACES_SECRET = os.environ.get('SPACES_SECRET')
+
+            saved = []
+            if all([SPACES_ENDPOINT, SPACES_REGION, SPACES_BUCKET, SPACES_KEY, SPACES_SECRET]):
+                s3_client = boto3.client(
+                    's3',
+                    endpoint_url=SPACES_ENDPOINT,
+                    region_name=SPACES_REGION,
+                    aws_access_key_id=SPACES_KEY,
+                    aws_secret_access_key=SPACES_SECRET,
+                )
+                for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
+                    safe_first = str(student['first_name']).replace(' ', '_')
+                    safe_last = str(student['last_name']).replace(' ', '_')
+                    filename = f'Invitacion_Acompanante_{i}_{safe_first}_{safe_last}.pdf'
+                    prefix = PREVIEW_DIR.strip('/') if PREVIEW_DIR else 'previews'
+                    key = f"{prefix}/{filename}"
+                    s3_client.put_object(
+                        Bucket=SPACES_BUCKET,
+                        Key=key,
+                        Body=pdf_bytes,
+                        ContentType='application/pdf',
+                        ACL='private'
+                    )
+                    saved.append({'space_key': key})
+            else:
+                os.makedirs(PREVIEW_DIR, exist_ok=True)
+                for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
+                    safe_first = str(student['first_name']).replace(' ', '_')
+                    safe_last = str(student['last_name']).replace(' ', '_')
+                    filename = f'Invitacion_Acompanante_{i}_{safe_first}_{safe_last}.pdf'
+                    out_path = os.path.join(PREVIEW_DIR, filename)
+                    with open(out_path, 'wb') as f:
+                        f.write(pdf_bytes)
+                    saved.append({'file_path': out_path})
+
             cur.close()
             conn.close()
-            return {'success': True, 'dry_run': True, 'email': recipients, 'preview_files': saved_files, 'preview_dir': PREVIEW_DIR}
+            return {'success': True, 'dry_run': True, 'email': recipients, 'previews': saved, 'preview_dir': PREVIEW_DIR}
         else:
             # Attach PDFs
             for i, pdf_bytes in enumerate(pdf_bytes_list, 1):
