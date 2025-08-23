@@ -11,7 +11,6 @@ from datetime import datetime
 import pytz
 import urllib.request
 import json
-import boto3
 
 # Use the Cloudinary PNG as the cached logo image
 try:
@@ -79,6 +78,7 @@ def send_companion_invitations():
     use_spaces = False
     if DRY_RUN and all([SPACES_ENDPOINT, SPACES_REGION, SPACES_BUCKET, SPACES_KEY, SPACES_SECRET]):
         try:
+            import boto3  # Lazy import so app can start even if boto3 missing
             s3_client = boto3.client(
                 's3',
                 endpoint_url=SPACES_ENDPOINT,
@@ -369,6 +369,7 @@ def send_companion_invitations_to_student(cedula):
 
             saved = []
             if all([SPACES_ENDPOINT, SPACES_REGION, SPACES_BUCKET, SPACES_KEY, SPACES_SECRET]):
+                import boto3  # Lazy import
                 s3_client = boto3.client(
                     's3',
                     endpoint_url=SPACES_ENDPOINT,
