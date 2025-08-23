@@ -20,8 +20,12 @@ UAM_BLUE = HexColor('#002060')
 UAM_GREEN = HexColor('#009A44')
 UAM_LIGHT_GRAY = HexColor('#f7f7f7')
 
-# Download and cache UAM logo
+# Optional logo (disabled by default to reduce PDF size). Enable by setting PDF_INCLUDE_LOGO=1
+PDF_INCLUDE_LOGO = os.environ.get('PDF_INCLUDE_LOGO', '0') == '1'
+
 def get_uam_logo():
+    if not PDF_INCLUDE_LOGO:
+        return None
     try:
         with urllib.request.urlopen('https://res.cloudinary.com/demc0oskw/image/upload/v1746210685/uam_logo_fjqv6p.png') as response:
             return response.read()
@@ -64,6 +68,12 @@ def create_invitation_pdf(student_name, companion_number, qr_data):
         topMargin=15*mm,
         bottomMargin=15*mm
     )
+
+    # Compressed canvas to reduce PDF size
+    class CompressedCanvas(canvas.Canvas):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.setPageCompression(1)
     
     # Get styles
     styles = getSampleStyleSheet()
@@ -112,23 +122,19 @@ def create_invitation_pdf(student_name, companion_number, qr_data):
     # Build content
     story = []
     
-    # Add logo if available with proper aspect ratio
+    # Add logo only if explicitly enabled
     logo_bytes = get_uam_logo()
     if logo_bytes:
-        # Load image to get original dimensions
         pil_img = PILImage.open(io.BytesIO(logo_bytes))
         original_width, original_height = pil_img.size
-        
-        # Calculate proper dimensions maintaining aspect ratio
-        target_height = 60  # Fixed height
+        target_height = 48  # Slightly smaller to reduce size
         aspect_ratio = original_width / original_height
         target_width = target_height * aspect_ratio
-        
         logo_img = Image(io.BytesIO(logo_bytes))
         logo_img.drawHeight = target_height
         logo_img.drawWidth = target_width
         story.append(logo_img)
-        story.append(Spacer(1, 15))
+        story.append(Spacer(1, 12))
     
     # Header with gradient-like effect using table
     header_data = [['UNIVERSIDAD ARTURO MICHELENA']]
@@ -168,8 +174,8 @@ def create_invitation_pdf(student_name, companion_number, qr_data):
     # QR Code
     qr_bytes = create_qr_code(qr_data)
     qr_img = Image(io.BytesIO(qr_bytes))
-    qr_img.drawHeight = 120
-    qr_img.drawWidth = 120
+    qr_img.drawHeight = 110
+    qr_img.drawWidth = 110
     
     # QR Container with border
     qr_data_table = [
@@ -214,8 +220,8 @@ def create_invitation_pdf(student_name, companion_number, qr_data):
     ]))
     story.append(footer_table)
     
-    # Build PDF
-    doc.build(story)
+    # Build PDF with compression
+    doc.build(story, canvasmaker=CompressedCanvas)
     pdf_buffer.seek(0)
     return pdf_buffer.getvalue()
 
