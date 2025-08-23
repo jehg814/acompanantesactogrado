@@ -116,8 +116,34 @@ def send_companion_invitations():
             if not qr_codes:
                 qr_codes = create_companion_qr_codes(student['id'])
             
-            # Generate PDF invitations
-            pdf_bytes_list = generate_companion_pdfs(student['id'], student_full_name, qr_codes)
+            # Generate or fetch PDF invitations
+            pdf_bytes_list = None
+            # If not DRY_RUN but Spaces configured, try to fetch previously generated PDFs from Spaces first
+            if not DRY_RUN and all([SPACES_ENDPOINT, SPACES_REGION, SPACES_BUCKET, SPACES_KEY, SPACES_SECRET]):
+                try:
+                    import boto3  # Lazy import
+                    s3_fetch = boto3.client(
+                        's3', endpoint_url=SPACES_ENDPOINT, region_name=SPACES_REGION,
+                        aws_access_key_id=SPACES_KEY, aws_secret_access_key=SPACES_SECRET
+                    )
+                    prefix = PREVIEW_DIR.strip('/') if PREVIEW_DIR else 'previews'
+                    safe_first = str(student['first_name']).replace(' ', '_')
+                    safe_last = str(student['last_name']).replace(' ', '_')
+                    keys = [
+                        f"{prefix}/Invitacion_Acompanante_1_{safe_first}_{safe_last}.pdf",
+                        f"{prefix}/Invitacion_Acompanante_2_{safe_first}_{safe_last}.pdf",
+                    ]
+                    fetched = []
+                    for key in keys:
+                        obj = s3_fetch.get_object(Bucket=SPACES_BUCKET, Key=key)
+                        fetched.append(obj['Body'].read())
+                    if len(fetched) == 2:
+                        pdf_bytes_list = fetched
+                except Exception:
+                    pdf_bytes_list = None
+            if pdf_bytes_list is None:
+                # Fallback: build PDFs now
+                pdf_bytes_list = generate_companion_pdfs(student['id'], student_full_name, qr_codes)
             
             # Build email (or preview metadata)
             msg = MIMEMultipart('related')
@@ -306,8 +332,40 @@ def send_companion_invitations_to_student(cedula):
         if not qr_codes:
             qr_codes = create_companion_qr_codes(student['id'])
         
-        # Generate PDF invitations
-        pdf_bytes_list = generate_companion_pdfs(student['id'], student_full_name, qr_codes)
+        # Generate or fetch PDF invitations
+        pdf_bytes_list = None
+        # If not DRY_RUN and Spaces configured, try to fetch existing PDFs from Spaces first
+        if not DRY_RUN and all([
+            os.environ.get('SPACES_ENDPOINT'), os.environ.get('SPACES_REGION'),
+            os.environ.get('SPACES_BUCKET'), os.environ.get('SPACES_KEY'), os.environ.get('SPACES_SECRET')
+        ]):
+            try:
+                import boto3  # Lazy import
+                s3_fetch = boto3.client(
+                    's3',
+                    endpoint_url=os.environ.get('SPACES_ENDPOINT'),
+                    region_name=os.environ.get('SPACES_REGION'),
+                    aws_access_key_id=os.environ.get('SPACES_KEY'),
+                    aws_secret_access_key=os.environ.get('SPACES_SECRET'),
+                )
+                prefix = PREVIEW_DIR.strip('/') if PREVIEW_DIR else 'previews'
+                safe_first = str(student['first_name']).replace(' ', '_')
+                safe_last = str(student['last_name']).replace(' ', '_')
+                keys = [
+                    f"{prefix}/Invitacion_Acompanante_1_{safe_first}_{safe_last}.pdf",
+                    f"{prefix}/Invitacion_Acompanante_2_{safe_first}_{safe_last}.pdf",
+                ]
+                fetched = []
+                for key in keys:
+                    obj = s3_fetch.get_object(Bucket=os.environ.get('SPACES_BUCKET'), Key=key)
+                    fetched.append(obj['Body'].read())
+                if len(fetched) == 2:
+                    pdf_bytes_list = fetched
+            except Exception:
+                pdf_bytes_list = None
+
+        if pdf_bytes_list is None:
+            pdf_bytes_list = generate_companion_pdfs(student['id'], student_full_name, qr_codes)
         
         # Setup SMTP or preview dir
         if DRY_RUN:
