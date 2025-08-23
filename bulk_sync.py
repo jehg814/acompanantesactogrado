@@ -318,7 +318,12 @@ def sync_paid_students_bulk(from_date: str = '2025-01-01'):
                 WHERE student_remote_id = ANY(%s)
             """
             cur.execute(existing_ids_query, ([str(s['IDEstudiante']) for s in valid_students],))
-            existing_ids = set(row[0] for row in cur.fetchall())
+            rows = cur.fetchall()
+            # RealDictCursor returns dict-like rows; fall back to positional if needed
+            try:
+                existing_ids = set(row['student_remote_id'] for row in rows)
+            except Exception:
+                existing_ids = set(row[0] for row in rows)
         finally:
             cur.close()
             conn.close()
